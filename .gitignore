@@ -43,3 +43,4 @@ wandb/
 !/latentsync/utils/mask.png
 /checkpoints/
 !/assets/*
+process_redis.yaml
