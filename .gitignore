@@ -44,3 +44,8 @@ wandb/
 /checkpoints/
 !/assets/*
 process_redis.yaml
+
+./fakeVideo
+./tempAudio
+./tempVideo
+./temp

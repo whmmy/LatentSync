@@ -1,5 +1,5 @@
 import argparse
-import datetime
+from datetime import datetime
 import os
 import queue
 import re
@@ -31,7 +31,8 @@ bucket = config['cos']['bucket']
 cosConfig = CosConfig(
     Region=config['cos']['region'],
     SecretId=config['cos']['secret_id'],
-    SecretKey=config['cos']['secret_key']
+    SecretKey=config['cos']['secret_key'],
+
 )
 cosClient = CosS3Client(cosConfig)
 redis_queue = 'LS:TaskQueue'
@@ -106,7 +107,8 @@ def process_redis_queue():
 
             video_dir = Path("./tempVideo")
             video_dir.mkdir(parents=True, exist_ok=True)
-            videoLocalPath = str(audio_dir / audioFileName)
+            videoFileName = get_file_name_by_url(video_file_url)
+            videoLocalPath = str(video_dir / videoFileName)
             if os.path.exists(videoLocalPath):
                 print(f'视频文件已经存在无需下载，{videoLocalPath}')
             else:
@@ -212,7 +214,7 @@ def process_upload_queue():
             task_result_key = f'LS:task_result:{taskId}'
 
             # 进行COS文件上传
-            fakeVideoName = generate_filename(personId, taskId, '.mp4')
+            fakeVideoName = generate_filename(personId, taskId, 'mp4')
             upload_to_cos(outPutVideoPath, fakeVideoName)
 
             # 上传完成后，改变redisKey中的状态值
@@ -220,7 +222,7 @@ def process_upload_queue():
             ret.set_code(ret.RET_OK)
             ret.set_data({
                 "fileKey": cosClient.get_object_url(bucket, fakeVideoName),
-                "time": datetime.datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+                "time": datetime.now().strftime("%Y-%m-%d %H-%M-%S")
             })
             putTaskStatus(task_result_key, ret)
             # 上传完毕后删除音频和fake视频文件
@@ -237,7 +239,7 @@ def generate_filename(person_id, taskId, file_format):
    :return: 生成的随机文件名
    """
     # 获取当前时间并格式化为字符串，只保留到分钟
-    current_time = datetime.datetime.now().strftime("%Y%m%d%H%M")
+    current_time = datetime.now().strftime("%Y%m%d%H%M")
     # 组合时间、person_id、taskId和文件格式生成文件名
     filename = f"/LS/TASK_RESULT/{current_time}_{person_id}_{taskId}.{file_format}"
     return filename
@@ -279,10 +281,10 @@ if __name__ == "__main__":
 
     # 启动两个线程分别处理两个功能
     t1 = threading.Thread(target=process_redis_queue)
-    # t2 = threading.Thread(target=process_upload_queue)
+    t2 = threading.Thread(target=process_upload_queue)
 
     t1.start()
-    # t2.start()
+    t2.start()
 
     t1.join()
-    # t2.join()
+    t2.join()
