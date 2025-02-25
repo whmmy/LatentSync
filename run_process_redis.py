@@ -56,23 +56,33 @@ def download_file(url, local_path):
     """
     异步下载文件
     """
-    response = requests.get(url)
-    with open(local_path, 'wb') as f:
-        f.write(response.content)
-    return local_path
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # 检查请求是否成功
+        with open(local_path, 'wb') as f:
+            f.write(response.content)
+        return local_path
+    except Exception as e:
+        print(f"下载文件 {url} 时出错: {e}")
+        return None
 
 
 def upload_to_cos(path, oss_key):
     """
     异步上传文件到 cos
     """
-    print(f'开始上传文件到 cos, oss_key:{oss_key}')
-    response = cosClient.upload_file(
-        Bucket=bucket,
-        LocalFilePath=path,
-        Key=oss_key,
-        EnableMD5=False,
-    )
+    try:
+        print(f'开始上传文件到 cos, oss_key:{oss_key}')
+        response = cosClient.upload_file(
+            Bucket=bucket,
+            LocalFilePath=path,
+            Key=oss_key,
+            EnableMD5=False,
+        )
+        return True
+    except Exception as e:
+        print(f"上传文件 {path} 到 COS 失败: {e}")
+        return False
 
 
 def process_redis_queue():
@@ -81,52 +91,65 @@ def process_redis_queue():
     """
     print('开始处理redis队列')
     while True:
-        # 从redis队列中获取任务
-        task = redis_client.blpop([redis_queue], timeout=0)
-        if task:
-            ret = JsonRet()
-            print(task)
-            # 判断是否是json且合法格式
+        try:
+            # 从redis队列中获取任务
+            task = redis_client.blpop([redis_queue], timeout=0)
+            if task:
+                ret = JsonRet()
+                print(task)
+                # 判断是否是json且合法格式
 
-            task_data_str = task[1].decode('utf-8')
-            task_dict = json.loads(task_data_str)
-            audio_file_url = task_dict.get('audioFileUrl')
-            video_file_url = task_dict.get('videoFileUrl')
-            person_id = task_dict.get('personId')
-            taskId = task_dict.get('taskId')
+                task_data_str = task[1].decode('utf-8')
+                task_dict = json.loads(task_data_str)
+                audio_file_url = task_dict.get('audioFileUrl')
+                video_file_url = task_dict.get('videoFileUrl')
+                person_id = task_dict.get('personId')
+                taskId = task_dict.get('taskId')
 
-            task_result_key = f'LS:task_result:{taskId}'
+                task_result_key = f'LS:task_result:{taskId}'
 
-            audio_dir = Path("./tempAudio")
-            audio_dir.mkdir(parents=True, exist_ok=True)
+                audio_dir = Path("./tempAudio")
+                audio_dir.mkdir(parents=True, exist_ok=True)
 
-            audioFileName = get_file_name_by_url(audio_file_url)
-            # 音频每次重新下载，推理完后默认删除
-            audioLocalPath = download_file(audio_file_url, str(audio_dir / audioFileName))
-            print(f'音频文件下载完成，{audioLocalPath}')
+                audioFileName = get_file_name_by_url(audio_file_url)
+                # 音频每次重新下载，推理完后默认删除
+                audioLocalPath = download_file(audio_file_url, str(audio_dir / audioFileName))
+                if audioLocalPath:
+                    print(f'音频文件下载完成，{audioLocalPath}')
+                else:
+                    print(f'音频文件下载失败，跳过此任务')
+                    continue
 
-            video_dir = Path("./tempVideo")
-            video_dir.mkdir(parents=True, exist_ok=True)
-            videoFileName = get_file_name_by_url(video_file_url)
-            videoLocalPath = str(video_dir / videoFileName)
-            if os.path.exists(videoLocalPath):
-                print(f'视频文件已经存在无需下载，{videoLocalPath}')
-            else:
-                download_file(video_file_url, videoLocalPath)
-                print(f'视频文件下载完成，{videoLocalPath}')
+                video_dir = Path("./tempVideo")
+                video_dir.mkdir(parents=True, exist_ok=True)
+                videoFileName = get_file_name_by_url(video_file_url)
+                videoLocalPath = str(video_dir / videoFileName)
+                if os.path.exists(videoLocalPath):
+                    print(f'视频文件已经存在无需下载，{videoLocalPath}')
+                else:
+                    videoLocalPath = download_file(video_file_url, videoLocalPath)
+                    if videoLocalPath:
+                        print(f'视频文件下载完成，{videoLocalPath}')
+                    else:
+                        print(f'视频文件下载失败，跳过此任务')
+                        continue
 
-            output_dir = Path("./fakeVideo")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-            # Set the output path for the processed video
-            output_video_path = str(output_dir / f"{taskId}_{person_id}_{current_time}.mp4")
-            process_video(videoLocalPath, audioLocalPath, output_video_path)
-            fileUploadQueue.put({
-                'outPutVideoPath': output_video_path,
-                'tempAudioPath': audioLocalPath,
-                'taskId': taskId,
-                'personId': person_id,
-            })
+                output_dir = Path("./fakeVideo")
+                output_dir.mkdir(parents=True, exist_ok=True)
+                current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+                # Set the output path for the processed video
+                output_video_path = str(output_dir / f"{taskId}_{person_id}_{current_time}.mp4")
+                if process_video(videoLocalPath, audioLocalPath, output_video_path):
+                    fileUploadQueue.put({
+                        'outPutVideoPath': output_video_path,
+                        'tempAudioPath': audioLocalPath,
+                        'taskId': taskId,
+                        'personId': person_id,
+                    })
+                else:
+                    print(f'视频处理失败，跳过此任务')
+        except Exception as e:
+            print(f"处理 Redis 队列任务时出错: {e}")
 
 
 CONFIG_PATH = Path("configs/unet/second_stage.yaml")
@@ -138,19 +161,19 @@ def process_video(
         audio_path,
         output_video_path
 ):
-    uNetConfig = OmegaConf.load(CONFIG_PATH)
-
-    uNetConfig["run"].update(
-        {
-            "guidance_scale": 1.5,
-            "inference_steps": 20,
-        }
-    )
-
-    # Parse the arguments
-    args = create_args(video_path, audio_path, output_video_path, 20, 1.5, 1247)
-
     try:
+        uNetConfig = OmegaConf.load(CONFIG_PATH)
+
+        uNetConfig["run"].update(
+            {
+                "guidance_scale": 1.5,
+                "inference_steps": 20,
+            }
+        )
+
+        # Parse the arguments
+        args = create_args(video_path, audio_path, output_video_path, 20, 1.5, 1247)
+
         result = main(
             config=uNetConfig,
             args=args,
@@ -203,31 +226,37 @@ def putTaskStatus(key, ret: JsonRet):
 def process_upload_queue():
     print('开始处理文件上传队列')
     while True:
-        # 从上传队列中获取文件地址
-        uploadTask = fileUploadQueue.get()
-        if uploadTask:
-            print('获取uploadTask', uploadTask)
-            outPutVideoPath = uploadTask.get('outPutVideoPath')
-            tempAudioPath = uploadTask.get('tempAudioPath')
-            personId = uploadTask.get('personId')
-            taskId = uploadTask.get('taskId')
-            task_result_key = f'LS:task_result:{taskId}'
+        try:
+            # 从上传队列中获取文件地址
+            uploadTask = fileUploadQueue.get()
+            if uploadTask:
+                print('获取uploadTask', uploadTask)
+                outPutVideoPath = uploadTask.get('outPutVideoPath')
+                tempAudioPath = uploadTask.get('tempAudioPath')
+                personId = uploadTask.get('personId')
+                taskId = uploadTask.get('taskId')
+                task_result_key = f'LS:task_result:{taskId}'
 
-            # 进行COS文件上传
-            fakeVideoName = generate_filename(personId, taskId, 'mp4')
-            upload_to_cos(outPutVideoPath, fakeVideoName)
+                # 进行COS文件上传
+                fakeVideoName = generate_filename(personId, taskId, 'mp4')
+                if not upload_to_cos(outPutVideoPath, fakeVideoName):
+                    print(f'文件 {outPutVideoPath} 上传失败，重新加入队列')
+                    fileUploadQueue.put(uploadTask)
+                    continue
 
-            # 上传完成后，改变redisKey中的状态值
-            ret = JsonRet()
-            ret.set_code(ret.RET_OK)
-            ret.set_data({
-                "fileKey": cosClient.get_object_url(bucket, fakeVideoName),
-                "time": datetime.now().strftime("%Y-%m-%d %H-%M-%S")
-            })
-            putTaskStatus(task_result_key, ret)
-            # 上传完毕后删除音频和fake视频文件
-            delete_file(tempAudioPath)
-            delete_file(outPutVideoPath)
+                # 上传完成后，改变redisKey中的状态值
+                ret = JsonRet()
+                ret.set_code(ret.RET_OK)
+                ret.set_data({
+                    "fileKey": cosClient.get_object_url(bucket, fakeVideoName),
+                    "time": datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+                })
+                putTaskStatus(task_result_key, ret)
+                # 上传完毕后删除音频和fake视频文件
+                delete_file(tempAudioPath)
+                delete_file(outPutVideoPath)
+        except Exception as e:
+            print(f"处理文件上传队列任务时出错: {e}")
 
 
 def generate_filename(person_id, taskId, file_format):
