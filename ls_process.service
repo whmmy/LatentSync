@@ -1,0 +1,13 @@
+[Unit]
+Description=LS Redis Queue Processing Service
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /workspace/fish-speech/run_process_redis.py
+WorkingDirectory=/workspace/fish-speech
+Restart=always
+User=whmmy
+Group=whmmy_fun
+
+[Install]
+WantedBy=multi-user.target

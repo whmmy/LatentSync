@@ -1,11 +1,12 @@
 import argparse
-from datetime import datetime
+import logging
 import os
 import queue
 import re
 import urllib.request
+from datetime import datetime
 from pathlib import Path
-import logging
+
 import redis
 import requests
 import yaml
@@ -54,11 +55,11 @@ def init_cos_client(config):
 
 
 # 加载配置
-config = load_config('./process_redis.yaml')
+processConfig = load_config('./process_redis.yaml')
 # 初始化 Redis 连接
-redis_client = init_redis_client(config)
+redis_client = init_redis_client(processConfig)
 # 初始化 OSS 客户端
-cosClient, bucket = init_cos_client(config)
+cosClient, bucket = init_cos_client(processConfig)
 redis_queue = 'LS:TaskQueue'
 
 # 创建文件上传队列
@@ -124,7 +125,11 @@ def process_redis_queue():
                 logging.info(task)
                 # 判断是否是json且合法格式
                 task_data_str = task[1].decode('utf-8')
-                task_dict = json.loads(task_data_str)
+                try:
+                    task_dict = json.loads(task_data_str)
+                except json.JSONDecodeError:
+                    logging.error(f"解析任务数据时出错: {task_data_str}")
+                    continue
                 audio_file_url = task_dict.get('audioFileUrl')
                 video_file_url = task_dict.get('videoFileUrl')
                 person_id = task_dict.get('personId')
