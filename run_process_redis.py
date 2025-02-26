@@ -61,7 +61,7 @@ processConfig = load_config('./process_redis.yaml')
 redis_client = init_redis_client(processConfig)
 # 初始化 OSS 客户端
 cosClient, bucket = init_cos_client(processConfig)
-redis_queue = 'LS:TaskQueue'
+redis_queue = 'VVS:LS:TaskQueue'
 
 # 创建文件上传队列
 fileUploadQueue = queue.Queue()
