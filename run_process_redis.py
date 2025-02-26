@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 import queue
@@ -117,32 +118,31 @@ def process_redis_queue():
     """
     logging.info('开始处理redis队列')
     while True:
-        try:
-            # 从redis队列中获取任务
-            task = redis_client.blpop([redis_queue], timeout=0)
-            if task:
-                ret = JsonRet()
-                logging.info(task)
-                # 判断是否是json且合法格式
-                task_data_str = task[1].decode('utf-8')
-                try:
-                    task_dict = json.loads(task_data_str)
-                except json.JSONDecodeError:
-                    logging.error(f"解析任务数据时出错: {task_data_str}")
-                    continue
-                audio_file_url = task_dict.get('audioFileUrl')
-                video_file_url = task_dict.get('videoFileUrl')
-                person_id = task_dict.get('personId')
-                taskId = task_dict.get('taskId')
-
+        # 从redis队列中获取任务
+        task = redis_client.blpop([redis_queue], timeout=0)
+        if task:
+            ret = JsonRet()
+            logging.info(task)
+            # 判断是否是json且合法格式
+            task_data_str = task[1].decode('utf-8')
+            try:
+                task_dict = json.loads(task_data_str)
+            except json.JSONDecodeError:
+                logging.error(f"解析任务数据时出错: {task_data_str}")
+                continue
+            audio_file_url = task_dict.get('audioFileUrl')
+            video_file_url = task_dict.get('videoFileUrl')
+            person_id = task_dict.get('personId')
+            taskId = task_dict.get('taskId')
+            try:
                 task_result_key = f'LS:task_result:{taskId}'
-
                 audio_dir = create_directory("./tempAudio")
                 audioFileName = get_file_name_by_url(audio_file_url)
                 # 音频每次重新下载，推理完后默认删除
                 audioLocalPath = download_file(audio_file_url, str(audio_dir / audioFileName))
                 if not audioLocalPath:
                     logging.warning(f'音频文件下载失败，跳过此任务')
+                    putTaskResult(1, f"音频文件下载失败", taskId)
                     continue
 
                 video_dir = create_directory("./tempVideo")
@@ -154,6 +154,7 @@ def process_redis_queue():
                     videoLocalPath = download_file(video_file_url, videoLocalPath)
                     if not videoLocalPath:
                         logging.warning(f'视频文件下载失败，跳过此任务')
+                        putTaskResult(1, f"视频文件下载失败", taskId)
                         continue
 
                 output_dir = create_directory("./fakeVideo")
@@ -169,8 +170,10 @@ def process_redis_queue():
                     })
                 else:
                     logging.warning(f'视频处理失败，跳过此任务')
-        except Exception as e:
-            logging.error(f"处理 Redis 队列任务时出错: {e}")
+                    putTaskResult(1, f"视频处理失败", taskId)
+            except Exception as e:
+                logging.error(f"处理 Redis 队列任务时出错: {e}")
+                putTaskResult(1, f"处理 Redis 队列任务时出错: {e}", taskId)
 
 
 CONFIG_PATH = Path("configs/unet/second_stage.yaml")
@@ -243,21 +246,30 @@ def putTaskStatus(key, ret: JsonRet):
     redis_client.set(key, ret())
 
 
+def putTaskResult(code, msg, taskId, fileUrl=None):
+    data = {
+        'code': code,
+        'msg': msg,
+        'taskId': taskId,
+        'fileUrl': fileUrl
+    }
+    redis_client.rpush('VVS:TASK_RESULT_QUEUE', json.dumps(data))
+
+
 # 功能2：通过上传文件的队列，获取文件地址并上传
 def process_upload_queue():
     logging.info('开始处理文件上传队列')
     while True:
-        try:
-            # 从上传队列中获取文件地址
-            uploadTask = fileUploadQueue.get()
-            if uploadTask:
-                logging.info('获取uploadTask', uploadTask)
-                outPutVideoPath = uploadTask.get('outPutVideoPath')
-                tempAudioPath = uploadTask.get('tempAudioPath')
-                personId = uploadTask.get('personId')
-                taskId = uploadTask.get('taskId')
-                task_result_key = f'LS:task_result:{taskId}'
-
+        # 从上传队列中获取文件地址
+        uploadTask = fileUploadQueue.get()
+        logging.info('获取uploadTask', uploadTask)
+        outPutVideoPath = uploadTask.get('outPutVideoPath')
+        tempAudioPath = uploadTask.get('tempAudioPath')
+        personId = uploadTask.get('personId')
+        taskId = uploadTask.get('taskId')
+        task_result_key = f'LS:task_result:{taskId}'
+        if uploadTask:
+            try:
                 # 进行COS文件上传
                 fakeVideoName = generate_filename(personId, taskId, 'mp4')
                 if not upload_to_cos(outPutVideoPath, fakeVideoName):
@@ -273,11 +285,13 @@ def process_upload_queue():
                     "time": datetime.now().strftime("%Y-%m-%d %H-%M-%S")
                 })
                 putTaskStatus(task_result_key, ret)
+                putTaskResult(0, 'success', taskId, cosClient.get_object_url(bucket, fakeVideoName))
                 # 上传完毕后删除音频和fake视频文件
                 delete_file(tempAudioPath)
                 delete_file(outPutVideoPath)
-        except Exception as e:
-            logging.error(f"处理文件上传队列任务时出错: {e}")
+            except Exception as e:
+                logging.error(f"处理文件上传队列任务时出错: {e}")
+                putTaskResult(1, f"处理文件上传队列任务时出错: {e}", taskId)
 
 
 def generate_filename(person_id, taskId, file_format):
