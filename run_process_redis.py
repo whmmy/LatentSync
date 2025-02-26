@@ -253,7 +253,7 @@ def putTaskResult(code, msg, taskId, fileUrl=None):
         'taskId': taskId,
         'fileUrl': fileUrl
     }
-    redis_client.rpush('VVS:TASK_RESULT_QUEUE', json.dumps(data))
+    redis_client.rpush('VVS:GPU_TASK_RESULT_QUEUE', json.dumps(data))
 
 
 # 功能2：通过上传文件的队列，获取文件地址并上传
