@@ -15,7 +15,6 @@ from omegaconf import OmegaConf
 from qcloud_cos import CosConfig, CosS3Client
 
 from scripts.inference import main
-from tools.ret import *
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -121,7 +120,6 @@ def process_redis_queue():
         # 从redis队列中获取任务
         task = redis_client.blpop([redis_queue], timeout=0)
         if task:
-            ret = JsonRet()
             logging.info(task)
             # 判断是否是json且合法格式
             task_data_str = task[1].decode('utf-8')
@@ -135,7 +133,7 @@ def process_redis_queue():
             person_id = task_dict.get('personId')
             taskId = task_dict.get('taskId')
             try:
-                task_result_key = f'LS:task_result:{taskId}'
+                putTaskResult(100, f'任务执行', taskId)
                 audio_dir = create_directory("./tempAudio")
                 audioFileName = get_file_name_by_url(audio_file_url)
                 # 音频每次重新下载，推理完后默认删除
@@ -241,10 +239,6 @@ def create_args(
     )
 
 
-def putTaskStatus(key, ret: JsonRet):
-    logging.info(f'更新redis状态,key:{key},ret:{ret()}')
-    redis_client.set(key, ret())
-
 
 def putTaskResult(code, msg, taskId, fileUrl=None):
     data = {
@@ -267,7 +261,6 @@ def process_upload_queue():
         tempAudioPath = uploadTask.get('tempAudioPath')
         personId = uploadTask.get('personId')
         taskId = uploadTask.get('taskId')
-        task_result_key = f'LS:task_result:{taskId}'
         if uploadTask:
             try:
                 # 进行COS文件上传
@@ -278,13 +271,6 @@ def process_upload_queue():
                     continue
 
                 # 上传完成后，改变redisKey中的状态值
-                ret = JsonRet()
-                ret.set_code(ret.RET_OK)
-                ret.set_data({
-                    "fileKey": cosClient.get_object_url(bucket, fakeVideoName),
-                    "time": datetime.now().strftime("%Y-%m-%d %H-%M-%S")
-                })
-                putTaskStatus(task_result_key, ret)
                 putTaskResult(0, 'success', taskId, cosClient.get_object_url(bucket, fakeVideoName))
                 # 上传完毕后删除音频和fake视频文件
                 delete_file(tempAudioPath)
