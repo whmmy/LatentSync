@@ -53,7 +53,7 @@ def init_cos_client(config):
     )
     return CosS3Client(cosConfig), bucket
 
-
+ 
 # 加载配置
 processConfig = load_config('./process_redis.yaml')
 # 初始化 Redis 连接
