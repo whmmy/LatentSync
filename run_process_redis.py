@@ -150,11 +150,10 @@ def process_redis_queue():
                     logging.warning(f'音频文件下载失败，跳过此任务')
                     putTaskResult(1, f"音频文件下载失败", taskId)
                     continue
-                # 音频声音延长2秒
+                # 音频声音延长1秒 后改为使用参数配置进入
                 logging.info(f'开始延长音频时间，{audioLocalPath}')
-                # 通过ffmpeg将语音延长2秒
                 newAudioFileName = f"new_{audioFileName}"
-                extendAuditPath = extend_audio(audioLocalPath, str(audio_dir / newAudioFileName), 2)
+                extendAuditPath = extend_audio(audioLocalPath, str(audio_dir / newAudioFileName), 1)
                 # 删除之前文件
                 delete_file(audioLocalPath)
                 video_dir = create_directory("./tempVideo")
