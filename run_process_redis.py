@@ -1,9 +1,9 @@
 import argparse
-import json
 import logging
 import os
 import queue
 import re
+import subprocess
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -94,6 +94,13 @@ def download_file(url, local_path):
         return None
 
 
+def extend_audio(input_file, output_file, x):
+    subprocess.run(
+        f'ffmpeg -i {input_file} -af "adelay=0s|0s, alimiter=limit=0" -t {x} -f lavfi -i anullsrc -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" {output_file}',
+        shell=True)
+    return output_file
+
+
 def upload_to_cos(path, oss_key):
     """
     上传文件到 cos
@@ -144,7 +151,13 @@ def process_redis_queue():
                     logging.warning(f'音频文件下载失败，跳过此任务')
                     putTaskResult(1, f"音频文件下载失败", taskId)
                     continue
-
+                # 音频声音延长2秒
+                logging.info(f'开始延长音频时间，{audioLocalPath}')
+                # 通过ffmpeg将语音延长2秒
+                newAudioFileName = f"new_{audioFileName}"
+                extendAuditPath = ffmpeg_extend_audio(audioLocalPath, str(audio_dir / newAudioFileName), 2)
+                # 删除之前文件
+                delete_file(audioLocalPath)
                 video_dir = create_directory("./tempVideo")
                 videoFileName = get_file_name_by_url(video_file_url)
                 videoLocalPath = str(video_dir / videoFileName)
@@ -161,10 +174,10 @@ def process_redis_queue():
                 current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
                 # Set the output path for the processed video
                 output_video_path = str(output_dir / f"{taskId}_{person_id}_{current_time}.mp4")
-                if process_video(videoLocalPath, audioLocalPath, output_video_path):
+                if process_video(videoLocalPath, extendAuditPath, output_video_path):
                     fileUploadQueue.put({
                         'outPutVideoPath': output_video_path,
-                        'tempAudioPath': audioLocalPath,
+                        'tempAudioPath': extendAuditPath,
                         'taskId': taskId,
                         'personId': person_id,
                     })
