@@ -13,7 +13,7 @@ import requests
 import yaml
 from omegaconf import OmegaConf
 from qcloud_cos import CosConfig, CosS3Client
-
+import json
 from scripts.inference import main
 
 # 配置日志
