@@ -94,8 +94,9 @@ def download_file(url, local_path):
 
 
 def extend_audio(input_file, output_file, x):
+    cmd = f'ffmpeg -i {input_file}  -f lavfi -t {x} -i anullsrc=channel_layout=stereo:sample_rate=44100 -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" {output_file}'
     subprocess.run(
-        f'ffmpeg -i {input_file} -af "adelay=0s|0s, alimiter=limit=0" -t {x} -f lavfi -i anullsrc -filter_complex "[0:a][1:a]concat=n=2:v=0:a=1" {output_file}',
+        cmd,
         shell=True)
     return output_file
 
@@ -250,7 +251,6 @@ def create_args(
             str(seed),
         ]
     )
-
 
 
 def putTaskResult(code, msg, taskId, fileUrl=None):
